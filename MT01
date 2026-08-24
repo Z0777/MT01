@@ -1,0 +1,76 @@
+1. TabList2 — agregar dentro de cntDH04_5
+
+Control: ModernTabList@1.0.1
+
+Propiedad	Fórmula
+Items	=Table({Value: "TODOS"}; {Value: "VENCIDO"}; {Value: "POR VENCER"}; {Value: "VIGENTE"})
+DefaultSelectedItems	=[{Value: "TODOS"}]
+BasePaletteColor	=RGBA(141; 229; 250; 1)
+TabSize	=TabSize.Medium
+FillPortions	=2
+LayoutMinHeight	=16
+LayoutMinWidth	=16
+
+Incluí TODOS porque sin esa pestaña la galería queda siempre filtrada y no hay forma de ver el listado completo. Si no la quieres, quita esa línea del Items y cambia el DefaultSelectedItems a "VENCIDO".
+
+2. glD01_2 → propiedad Items
+=Sort(
+    Filter(
+        DB;
+        (
+            IsBlank(TI01_2.Value) ||
+            StartsWith(AREA; TI01_2.Value) ||
+            StartsWith(MODULO; TI01_2.Value) ||
+            StartsWith(DESCRIPCION; TI01_2.Value) ||
+            StartsWith(CATEGORIA; TI01_2.Value) ||
+            StartsWith(USO; TI01_2.Value)
+        );
+        (
+            IsBlank(dpDesde_1.SelectedDate) ||
+            If(
+                IsBlank(CAMBIO);
+                DateAdd(INSTALACION; Value('VIDA UTIL'); TimeUnit.Days);
+                CAMBIO
+            ) >= dpDesde_1.SelectedDate
+        );
+        (
+            IsBlank(dpHasta_1.SelectedDate) ||
+            If(
+                IsBlank(CAMBIO);
+                DateAdd(INSTALACION; Value('VIDA UTIL'); TimeUnit.Days);
+                CAMBIO
+            ) <= dpHasta_1.SelectedDate
+        );
+        (
+            TabList2.Selected.Value = "TODOS" ||
+            With(
+                {
+                    wDias: DateDiff(
+                        Today();
+                        If(
+                            IsBlank(CAMBIO);
+                            DateAdd(INSTALACION; Value('VIDA UTIL'); TimeUnit.Days);
+                            CAMBIO
+                        );
+                        TimeUnit.Days
+                    )
+                };
+                If(
+                    wDias < 0; "VENCIDO";
+                    wDias <= 30; "POR VENCER";
+                    "VIGENTE"
+                )
+            ) = TabList2.Selected.Value
+        )
+    );
+    INSTALACION;
+    SortOrder.Ascending
+)
+3. Icon3_2 → propiedad OnSelect
+
+Para que la X también devuelva la pestaña a su estado inicial:
+
+=Reset(dpDesde_1);;
+Reset(dpHasta_1);;
+Reset(TI01_2);;
+Reset(TabList2)
