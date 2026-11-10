@@ -1,0 +1,1958 @@
+===============================================================================
+SISTEMA DE MANTENIMIENTO - BTI
+IMPLEMENTACION: HORAS LABORALES REALES + ELIMINACION DE "EN PROCESO"
+                + KPIs ADAPTADOS + EXPORTACION A EXCEL
+===============================================================================
+Sintaxis: separador ";"  |  encadenado ";;"  |  decimales con coma  |  Group ''
+Solo se listan los controles que CAMBIAN, se AGREGAN o se ELIMINAN.
+===============================================================================
+
+
+###############################################################################
+# PARTE 0 - CAMBIOS EN SHAREPOINT (hacer esto primero)
+###############################################################################
+
+NO se crean columnas nuevas. Solo hay que verificar/ajustar tipos:
+
+LISTA: DBASIG
+-------------------------------------------------------------------------------
+Columna            | Tipo requerido                     | Accion
+-------------------------------------------------------------------------------
+INICIO REAL        | Fecha y hora -> INCLUIR HORA = Si  | Verificar/cambiar
+FIN REAL           | Fecha y hora -> INCLUIR HORA = Si  | Verificar/cambiar
+ASIGNACION         | Fecha y hora -> INCLUIR HORA = Si  | Verificar/cambiar
+COMPROMISO         | Fecha y hora -> INCLUIR HORA = Si  | Verificar/cambiar
+HORAS_TOTALES      | Numero (2 decimales)               | Verificar
+ESTADO (Eleccion)  | PENDIENTE / ASIGNADO / FINALIZADO  | QUITAR "EN PROCESO"
+                   |                                    | QUITAR "PARCIAL"
+-------------------------------------------------------------------------------
+
+LISTA: REVISIONMANT
+-------------------------------------------------------------------------------
+INICIOREAL         | Fecha y hora -> INCLUIR HORA = Si  | Verificar/cambiar
+FINREAL            | Fecha y hora -> INCLUIR HORA = Si  | Verificar/cambiar
+ASIGNACION         | Fecha y hora -> INCLUIR HORA = Si  | Verificar/cambiar
+COMPROMISO         | Fecha y hora -> INCLUIR HORA = Si  | Verificar/cambiar
+HORAS_TOTALES      | Numero (2 decimales)               | Verificar
+ESTADO (Eleccion)  | PENDIENTE / ASIGNADO / FINALIZADO  | QUITAR "EN PROCESO"
+                   |                                    | QUITAR "PARCIAL"
+-------------------------------------------------------------------------------
+
+IMPORTANTE:
+- "Incluir hora = Si" es obligatorio. Sin eso SharePoint trunca la hora y
+  todas las metricas de horas quedan en 0.
+- La lista BITACORA_MANT YA NO SE USA para calcular horas. No la borres
+  (guarda el historico), pero ningun control nuevo escribe en ella.
+- Despues de cambiar los tipos: Power Apps -> Origenes de datos ->
+  DBASIG -> quitar y volver a agregar. Lo mismo con REVISIONMANT.
+- Configuracion -> General -> Limite de filas de datos = 2000.
+
+
+###############################################################################
+# PARTE 1 - App -> Formulas  (MODIFICAR 1 formula existente)
+###############################################################################
+
+Buscar la linea "fxRegistros = ..." y REEMPLAZARLA COMPLETA por esta.
+(Ya no lee BITACORA_MANT; ahora lee las ordenes finalizadas de colMant.)
+
+fxRegistros =
+With(
+    {
+        t: Trim(txtKpiBuscar_1.Text);
+        a: Coalesce(cmbKAct_2.Selected.Value; "TODOS")
+    };
+    Filter(
+        colMant;
+        ESTADO.Value = "FINALIZADO";
+        a = "TODOS" || TIPO.Value = a;
+        IsBlank(t)
+          || t in RESPONSABLE
+          || t in AREA
+          || t in DESCRIPCION
+          || t in SOLICITANTE
+    )
+);;
+
+El resto de App -> Formulas queda EXACTAMENTE IGUAL. No tocar colores,
+breakpoints, varAdmins, colMenuNav ni lstCatSinBitacora.
+
+
+###############################################################################
+# PARTE 2 - App -> OnStart  (AGREGAR 4 lineas)
+###############################################################################
+
+Agregar estas 4 lineas junto al resto de Set(...) iniciales.
+Pueden ir justo despues de  Set(varRespTxt; "");;
+
+Set(varHIniN; 7);;
+Set(varHFinN; 16);;
+Set(varHorasTot; 0);;
+Set(varFechaAsig; Blank());;
+
+No elimines nada mas del OnStart actual.
+
+
+###############################################################################
+# PARTE 3 - CONTROLES NUEVOS EN cntSec3  (captura manual de horas)
+###############################################################################
+
+UBICACION EXACTA:
+  SOLICITUD DE MANTENIMIENTO > cntPanel > cntPanelBody > cntSec3
+
+Insertar DESPUES de  cmbEstadoMant  y ANTES de  lblTiempoMant.
+
+ARBOL A CONSTRUIR:
+
+  cntHorasMant              (GroupContainer - Diseno automatico - Vertical)
+  |-- lblHorasTit           (Etiqueta)
+  |-- cntHoraIni            (GroupContainer - Diseno automatico - Horizontal)
+  |   |-- lblIniTit         (Etiqueta)
+  |   |-- dpIniRealMant     (Selector de fecha moderno)
+  |   |-- icoHIniDown       (Icono moderno)
+  |   |-- txtHoraIniMant    (Entrada de texto - Classic)
+  |   |-- icoHIniUp         (Icono moderno)
+  |-- cntHoraFin            (GroupContainer - Diseno automatico - Horizontal)
+  |   |-- lblFinTit         (Etiqueta)
+  |   |-- dpRealMant        (*** MOVER AQUI el que ya existe ***)
+  |   |-- icoHFinDown       (Icono moderno)
+  |   |-- txtHoraFinMant    (Entrada de texto - Classic)
+  |   |-- icoHFinUp         (Icono moderno)
+  |-- lblHorasLabMant       (Etiqueta)
+
+-------------------------------------------------------------------------------
+CONTROL: cntHorasMant   (NUEVO - GroupContainer AutoLayout Vertical)
+-------------------------------------------------------------------------------
+Visible:
+=cmbEstadoMant.Selected.Value = "FINALIZADO"
+
+LayoutDirection:
+=LayoutDirection.Vertical
+
+LayoutAlignItems:
+=LayoutAlignItems.Stretch
+
+Height:
+=150
+
+FillPortions:
+=0
+
+LayoutGap:
+=6
+
+Fill:
+=RGBA(239; 246; 255; 1)
+
+PaddingLeft:
+=8
+
+PaddingRight:
+=8
+
+PaddingTop:
+=8
+
+PaddingBottom:
+=8
+
+RadiusTopLeft / RadiusTopRight / RadiusBottomLeft / RadiusBottomRight:
+=10
+
+
+-------------------------------------------------------------------------------
+CONTROL: lblHorasTit   (NUEVO - Etiqueta)
+-------------------------------------------------------------------------------
+Text:
+="TIEMPO REAL DE EJECUCION"
+
+Font:
+=Font.'Segoe UI'
+
+FontWeight:
+=FontWeight.Bold
+
+Size:
+=11
+
+Height:
+=22
+
+Color:
+=RGBA(9; 33; 98; 1)
+
+
+-------------------------------------------------------------------------------
+CONTROL: cntHoraIni   (NUEVO - GroupContainer AutoLayout Horizontal)
+-------------------------------------------------------------------------------
+LayoutDirection:
+=LayoutDirection.Horizontal
+
+LayoutAlignItems:
+=LayoutAlignItems.Center
+
+Height:
+=40
+
+FillPortions:
+=0
+
+LayoutGap:
+=4
+
+
+-------------------------------------------------------------------------------
+CONTROL: lblIniTit   (NUEVO - Etiqueta, dentro de cntHoraIni)
+-------------------------------------------------------------------------------
+Text:
+="INICIO"
+
+Width:
+=55
+
+Size:
+=10
+
+FontWeight:
+=FontWeight.Semibold
+
+Color:
+=RGBA(90; 107; 123; 1)
+
+
+-------------------------------------------------------------------------------
+CONTROL: dpIniRealMant   (NUEVO - Selector de fecha moderno)
+-------------------------------------------------------------------------------
+DefaultDate:
+=Coalesce(varRegMant.'INICIO REAL'; Today())
+
+Format:
+="dd/mm/yyyy"
+
+DisplayMode:
+=If(varEsEncargado; DisplayMode.Edit; DisplayMode.View)
+
+FillPortions:
+=1
+
+AlignInContainer:
+=AlignInContainer.Stretch
+
+Height:
+=32
+
+
+-------------------------------------------------------------------------------
+CONTROL: icoHIniDown   (NUEVO - Icono moderno)
+-------------------------------------------------------------------------------
+Icon:
+="ChevronDown"
+
+Width:
+=26
+
+Height:
+=26
+
+Color:
+=RGBA(9; 33; 98; 1)
+
+OnSelect:
+=Set(varHIniN; Max(0; varHIniN - 0,25));;
+Reset(txtHoraIniMant)
+
+
+-------------------------------------------------------------------------------
+CONTROL: txtHoraIniMant   (NUEVO - Entrada de texto Classic)
+-------------------------------------------------------------------------------
+Default:
+=Text(Int(varHIniN); "[$-en-US]00") & ":" & Text(Round(Mod(varHIniN; 1) * 60; 0); "[$-en-US]00")
+
+Width:
+=70
+
+Height:
+=32
+
+Align:
+=Align.Center
+
+Font:
+=Font.'Segoe UI'
+
+FontWeight:
+=FontWeight.Semibold
+
+Size:
+=13
+
+HintText:
+="07:00"
+
+DisplayMode:
+=If(varEsEncargado; DisplayMode.Edit; DisplayMode.View)
+
+OnChange:
+=With(
+    {
+        p: Split(
+            Substitute(Substitute(Trim(txtHoraIniMant.Text); "."; ":"); ","; ":");
+            ":"
+        )
+    };
+    Set(
+        varHIniN;
+        Min(
+            23,75;
+            Max(
+                0;
+                Coalesce(Value(First(p).Result); 0)
+                + If(CountRows(p) >= 2; Coalesce(Value(Last(p).Result); 0) / 60; 0)
+            )
+        )
+    )
+)
+
+
+-------------------------------------------------------------------------------
+CONTROL: icoHIniUp   (NUEVO - Icono moderno)
+-------------------------------------------------------------------------------
+Icon:
+="ChevronUp"
+
+Width:
+=26
+
+Height:
+=26
+
+Color:
+=RGBA(9; 33; 98; 1)
+
+OnSelect:
+=Set(varHIniN; Min(23,75; varHIniN + 0,25));;
+Reset(txtHoraIniMant)
+
+
+-------------------------------------------------------------------------------
+CONTROL: cntHoraFin   (NUEVO - GroupContainer AutoLayout Horizontal)
+-------------------------------------------------------------------------------
+LayoutDirection:
+=LayoutDirection.Horizontal
+
+LayoutAlignItems:
+=LayoutAlignItems.Center
+
+Height:
+=40
+
+FillPortions:
+=0
+
+LayoutGap:
+=4
+
+
+-------------------------------------------------------------------------------
+CONTROL: lblFinTit   (NUEVO - Etiqueta, dentro de cntHoraFin)
+-------------------------------------------------------------------------------
+Text:
+="FIN"
+
+Width:
+=55
+
+Size:
+=10
+
+FontWeight:
+=FontWeight.Semibold
+
+Color:
+=RGBA(90; 107; 123; 1)
+
+
+-------------------------------------------------------------------------------
+CONTROL: icoHFinDown   (NUEVO - Icono moderno)
+-------------------------------------------------------------------------------
+Icon:
+="ChevronDown"
+
+Width:
+=26
+
+Height:
+=26
+
+Color:
+=RGBA(9; 33; 98; 1)
+
+OnSelect:
+=Set(varHFinN; Max(0; varHFinN - 0,25));;
+Reset(txtHoraFinMant)
+
+
+-------------------------------------------------------------------------------
+CONTROL: txtHoraFinMant   (NUEVO - Entrada de texto Classic)
+-------------------------------------------------------------------------------
+Default:
+=Text(Int(varHFinN); "[$-en-US]00") & ":" & Text(Round(Mod(varHFinN; 1) * 60; 0); "[$-en-US]00")
+
+Width:
+=70
+
+Height:
+=32
+
+Align:
+=Align.Center
+
+Font:
+=Font.'Segoe UI'
+
+FontWeight:
+=FontWeight.Semibold
+
+Size:
+=13
+
+HintText:
+="16:00"
+
+DisplayMode:
+=If(varEsEncargado; DisplayMode.Edit; DisplayMode.View)
+
+OnChange:
+=With(
+    {
+        p: Split(
+            Substitute(Substitute(Trim(txtHoraFinMant.Text); "."; ":"); ","; ":");
+            ":"
+        )
+    };
+    Set(
+        varHFinN;
+        Min(
+            23,75;
+            Max(
+                0;
+                Coalesce(Value(First(p).Result); 0)
+                + If(CountRows(p) >= 2; Coalesce(Value(Last(p).Result); 0) / 60; 0)
+            )
+        )
+    )
+)
+
+
+-------------------------------------------------------------------------------
+CONTROL: icoHFinUp   (NUEVO - Icono moderno)
+-------------------------------------------------------------------------------
+Icon:
+="ChevronUp"
+
+Width:
+=26
+
+Height:
+=26
+
+Color:
+=RGBA(9; 33; 98; 1)
+
+OnSelect:
+=Set(varHFinN; Min(23,75; varHFinN + 0,25));;
+Reset(txtHoraFinMant)
+
+
+-------------------------------------------------------------------------------
+CONTROL: lblHorasLabMant   (NUEVO - Etiqueta: resultado del calculo)
+-------------------------------------------------------------------------------
+Esta es la formula de HORAS LABORALES. Respeta el horario:
+  Lunes a Jueves .... 07:00 - 17:00  (10 h)
+  Viernes ........... 07:00 - 16:00  ( 9 h)
+  Sabado / Domingo .. solo cuenta si el trabajo INICIA o TERMINA ese dia;
+                      como dia intermedio cuenta 0 h.
+
+Text:
+=With(
+    {
+        d1: dpIniRealMant.SelectedDate;
+        d2: dpRealMant.SelectedDate;
+        h1: varHIniN;
+        h2: varHFinN
+    };
+    With(
+        {
+            c1: Switch(Weekday(d1; StartOfWeek.Monday); 5; 16; 6; 16; 7; 16; 17);
+            c2: Switch(Weekday(d2; StartOfWeek.Monday); 5; 16; 6; 16; 7; 16; 17)
+        };
+        If(
+            IsBlank(d1) || IsBlank(d2) || d2 < d1;
+            "Horas laborales: 0,00 h  (revisa las fechas)";
+
+            "Horas laborales: " &
+            Text(
+                If(
+                    d1 = d2;
+                    Max(0; Round(Min(c2; h2) - Max(7; h1); 2));
+                    Round(
+                        Max(0; c1 - Max(7; h1))
+                        + Max(0; Min(c2; h2) - 7)
+                        + Coalesce(
+                            Sum(
+                                ForAll(
+                                    Sequence(Max(0; DateDiff(d1; d2; TimeUnit.Days) - 1); 1) As S;
+                                    {
+                                        H: Switch(
+                                            Weekday(DateAdd(d1; S.Value; TimeUnit.Days); StartOfWeek.Monday);
+                                            5; 9;
+                                            6; 0;
+                                            7; 0;
+                                            10
+                                        )
+                                    }
+                                );
+                                H
+                            );
+                            0
+                        );
+                        2
+                    )
+                );
+                "[$-es-GT]#,##0.00"
+            ) & " h   (" &
+            Text(d1; "dd/mm") & " " & Text(Int(h1); "[$-en-US]00") & ":" & Text(Round(Mod(h1; 1) * 60; 0); "[$-en-US]00") &
+            "  a  " &
+            Text(d2; "dd/mm") & " " & Text(Int(h2); "[$-en-US]00") & ":" & Text(Round(Mod(h2; 1) * 60; 0); "[$-en-US]00") & ")"
+        )
+    )
+)
+
+Height:
+=40
+
+Size:
+=11
+
+FontWeight:
+=FontWeight.Semibold
+
+Color:
+=RGBA(9; 33; 98; 1)
+
+Wrap:
+=true
+
+AlignInContainer:
+=AlignInContainer.Stretch
+
+
+###############################################################################
+# PARTE 4 - CONTROLES EXISTENTES DEL PANEL (MODIFICAR)
+###############################################################################
+
+-------------------------------------------------------------------------------
+CONTROL: cmbEstadoMant        UBICACION: cntPanel > cntPanelBody > cntSec3
+-------------------------------------------------------------------------------
+Items:
+=Switch(
+    Coalesce(varRegMant.ESTADO.Value; "PENDIENTE");
+    "PENDIENTE"; If(varEsAdminMant; ["PENDIENTE"; "ASIGNADO"]; ["PENDIENTE"]);
+    "ASIGNADO"; ["ASIGNADO"; "FINALIZADO"];
+    ["FINALIZADO"]
+)
+
+DefaultSelectedItems:
+=[Coalesce(varRegMant.ESTADO.Value; "PENDIENTE")]
+
+DisplayMode:
+=If(
+    varEsEncargado && Coalesce(varRegMant.ESTADO.Value; "PENDIENTE") <> "FINALIZADO";
+    DisplayMode.Edit;
+    DisplayMode.View
+)
+
+
+-------------------------------------------------------------------------------
+CONTROL: dpRealMant           UBICACION: ahora dentro de cntHoraFin
+-------------------------------------------------------------------------------
+(Es el control que YA EXISTE. Solo hay que moverlo dentro de cntHoraFin y
+ cambiarle estas 4 propiedades.)
+
+Visible:
+=true
+
+DefaultDate:
+=Coalesce(varRegMant.'FIN REAL'; Today())
+
+Placeholder:
+="Fecha de finalizacion"
+
+FillPortions:
+=1
+
+AlignInContainer:
+=AlignInContainer.Stretch
+
+DisplayMode:
+=If(varEsEncargado; DisplayMode.Edit; DisplayMode.View)
+
+
+-------------------------------------------------------------------------------
+CONTROL: lblTiempoMant        UBICACION: cntPanel > cntPanelBody > cntSec3
+-------------------------------------------------------------------------------
+Ya no consulta BITACORA_MANT. Ahora muestra el reloj desde la ASIGNACION.
+
+Text:
+=With(
+    {
+        asg: varRegMant.ASIGNACION;
+        fin: varRegMant.'FIN REAL';
+        ht: Coalesce(varRegMant.HORAS_TOTALES; 0)
+    };
+    If(
+        IsBlank(asg);
+        "Sin asignar. El reloj inicia cuando se guarda en ASIGNADO.";
+
+        !IsBlank(fin);
+        "Finalizado el " & Text(fin; "dd/mm/yyyy hh:mm") &
+        "  |  Horas laborales: " & Text(ht; "[$-es-GT]#,##0.00") & " h" &
+        "  |  Desde asignacion: " & DateDiff(asg; fin; TimeUnit.Days) & " d";
+
+        "Asignado el " & Text(asg; "dd/mm/yyyy hh:mm") &
+        "  |  Transcurridos: " & DateDiff(asg; Now(); TimeUnit.Days) & " d" &
+        If(
+            !IsBlank(varRegMant.COMPROMISO) && varRegMant.COMPROMISO < Now();
+            "  |  ATRASADA";
+            ""
+        )
+    )
+)
+
+Visible:
+=Coalesce(varRegMant.ESTADO.Value; "PENDIENTE") in ["ASIGNADO"; "FINALIZADO"]
+
+Size:
+=11
+
+Wrap:
+=true
+
+Height:
+=40
+
+
+-------------------------------------------------------------------------------
+CONTROL: htmlFlujoMant        UBICACION: cntPanel > cntPanelBody
+-------------------------------------------------------------------------------
+Se elimina el paso "En proceso". Quedan 3 pasos.
+
+HtmlText:
+=With(
+    {r: varRegMant};
+    "<div style='font-family:Segoe UI;font-size:12px'>" &
+    Concat(
+        Table(
+            {s: "Solicitado"; d: r.CREADO; c: hexPend; x: ""};
+            {s: "Asignado"; d: r.ASIGNACION; c: hexAsig; x: "el reloj inicia aqui"};
+            {s: "Finalizado"; d: r.'FIN REAL'; c: hexFin;
+             x: If(Coalesce(r.HORAS_TOTALES; 0) > 0; Text(r.HORAS_TOTALES; "[$-es-GT]#,##0.00") & " h laborales"; "")}
+        ) As F;
+        "<div style='display:flex;align-items:flex-start;gap:12px'>" &
+        "<div style='display:flex;flex-direction:column;align-items:center'>" &
+        "<span style='width:24px;height:24px;border-radius:50%;display:inline-grid;place-items:center;color:#fff;font-size:13px;background:" &
+        If(!IsBlank(F.d); F.c; "#cfdae5") & "'>" & If(!IsBlank(F.d); "&#10003;"; "&#9675;") & "</span>" &
+        "<span style='width:2px;height:26px;background:" & If(!IsBlank(F.d); F.c; "#e3eaf1") & "'></span>" &
+        "</div>" &
+        "<div style='padding-top:2px'><b style='color:#16273a'>" & F.s & "</b><br>" &
+        "<small style='color:#5a6b7b'>" &
+        If(!IsBlank(F.d); Text(F.d; "dd/mm/yyyy hh:mm"); "pendiente") &
+        If(IsBlank(F.x); ""; " &middot; " & F.x) &
+        "</small></div></div>"
+    ) &
+    If(
+        !IsBlank(varRegMant.COMPROMISO);
+        "<div style='display:flex;align-items:center;gap:12px;padding-top:6px'>" &
+        "<span style='width:24px;height:24px;border-radius:50%;display:inline-grid;place-items:center;color:#fff;background:" &
+        If(IsBlank(varRegMant.'FIN REAL') && varRegMant.COMPROMISO < Now(); "#cc0000"; "#94a3b8") &
+        "'>&#8986;</span>" &
+        "<div><b>Entrega estimada</b><br><small style='color:#5a6b7b'>" &
+        Text(varRegMant.COMPROMISO; "dd/mm/yyyy hh:mm") &
+        If(IsBlank(varRegMant.'FIN REAL') && varRegMant.COMPROMISO < Now(); " &middot; vencida"; "") &
+        "</small></div></div>";
+        ""
+    ) &
+    "</div>"
+)
+
+Height:
+=210
+
+
+-------------------------------------------------------------------------------
+CONTROL: htmlInfoMant         UBICACION: cntPanel > cntPanelBody > cntSec1
+-------------------------------------------------------------------------------
+Ya no consulta BITACORA_MANT; lee HORAS_TOTALES del registro.
+
+HtmlText:
+=With(
+    {
+        r: varRegMant;
+        est: Coalesce(varRegMant.ESTADO.Value; "—");
+        pri: Coalesce(varRegMant.PRIORIDADES.Value; "—");
+        hrs: Round(Coalesce(varRegMant.HORAS_TOTALES; 0); 2)
+    };
+    With(
+        {
+            colEst: Switch(
+                est;
+                "PENDIENTE"; hexPend;
+                "ASIGNADO"; hexAsig;
+                "FINALIZADO"; hexFin;
+                "#94a3b8"
+            );
+            dias: If(
+                !IsBlank(r.'FIN REAL') && !IsBlank(r.ASIGNACION);
+                DateDiff(r.ASIGNACION; r.'FIN REAL'; TimeUnit.Days);
+                !IsBlank(r.ASIGNACION);
+                DateDiff(r.ASIGNACION; Now(); TimeUnit.Days);
+                0
+            )
+        };
+        "<div style='font-family:Segoe UI;font-size:12px'>" &
+        "<div style='display:flex;gap:8px;margin-bottom:10px'>" &
+        "<span style='background:" & colEst & ";color:#fff;padding:4px 12px;border-radius:12px;font-weight:600'>" & est & "</span>" &
+        "<span style='background:#eef2f6;color:#16273a;padding:4px 12px;border-radius:12px'>" & pri & "</span>" &
+        If(
+            IsBlank(r.'FIN REAL') && !IsBlank(r.COMPROMISO) && r.COMPROMISO < Now();
+            "<span style='background:#cc0000;color:#fff;padding:4px 12px;border-radius:12px;font-weight:600'>ATRASADA</span>";
+            ""
+        ) &
+        "</div>" &
+        "<table style='width:100%;border-collapse:collapse'>" &
+        Concat(
+            Table(
+                {k: "Area"; v: Coalesce(r.AREA; "—")};
+                {k: "Descripcion"; v: Coalesce(r.DESCRIPCION; "—")};
+                {k: "Categoria"; v: Coalesce(r.CATEGORIA; "—")};
+                {k: "Solicitado por"; v: Coalesce(r.SOLICITANTE; "—")};
+                {k: "Creado"; v: If(IsBlank(r.CREADO); "—"; Text(r.CREADO; "dd/mm/yyyy hh:mm"))};
+                {k: "Asignado"; v: If(IsBlank(r.ASIGNACION); "pendiente"; Text(r.ASIGNACION; "dd/mm/yyyy hh:mm"))};
+                {k: "Entrega estimada"; v: If(IsBlank(r.COMPROMISO); "pendiente"; Text(r.COMPROMISO; "dd/mm/yyyy hh:mm"))};
+                {k: "Inicio real"; v: If(IsBlank(r.'INICIO REAL'); "pendiente"; Text(r.'INICIO REAL'; "dd/mm/yyyy hh:mm"))};
+                {k: "Fin real"; v: If(IsBlank(r.'FIN REAL'); "pendiente"; Text(r.'FIN REAL'; "dd/mm/yyyy hh:mm"))};
+                {k: "Horas laborales"; v: Text(hrs; "[$-es-GT]#,##0.00") & " h"};
+                {k: "Responsable"; v: Coalesce(r.RESPONSABLE; "sin asignar")};
+                {
+                    k: If(IsBlank(r.'FIN REAL'); "Dias desde asignacion"; "Dias hasta entrega");
+                    v: Text(dias) & " dias"
+                }
+            ) As I;
+            "<tr><td style='padding:5px 8px;border-bottom:1px solid #eef2f6;color:#5a6b7b;font-weight:600;white-space:nowrap'>" &
+            I.k & "</td><td style='padding:5px 8px;border-bottom:1px solid #eef2f6;color:#16273a'>" & I.v & "</td></tr>"
+        ) &
+        "</table></div>"
+    )
+)
+
+
+###############################################################################
+# PARTE 5 - btnGuardar  (REEMPLAZAR OnSelect COMPLETO)
+###############################################################################
+
+UBICACION: cntPanel > cntPanelFooter > btnGuardar
+
+-------------------------------------------------------------------------------
+CONTROL: btnGuardar  ->  Text
+-------------------------------------------------------------------------------
+=Switch(
+    cmbEstadoMant.Selected.Value;
+    "ASIGNADO"; "Asignar";
+    "FINALIZADO"; "Finalizar";
+    "Guardar"
+)
+
+
+-------------------------------------------------------------------------------
+CONTROL: btnGuardar  ->  OnSelect
+-------------------------------------------------------------------------------
+=If(
+    IsEmpty(colPersonalMant) && cmbEstadoMant.Selected.Value <> "PENDIENTE";
+    Notify("Selecciona al menos un responsable."; NotificationType.Error);
+
+    IsBlank(dpAsigMant.SelectedDate);
+    Notify("Selecciona la fecha de asignacion."; NotificationType.Error);
+
+    cmbEstadoMant.Selected.Value = "FINALIZADO" && IsBlank(dpIniRealMant.SelectedDate);
+    Notify("Indica la FECHA DE INICIO del trabajo."; NotificationType.Error);
+
+    cmbEstadoMant.Selected.Value = "FINALIZADO" && IsBlank(dpRealMant.SelectedDate);
+    Notify("Indica la FECHA DE FIN del trabajo."; NotificationType.Error);
+
+    cmbEstadoMant.Selected.Value = "FINALIZADO" && dpRealMant.SelectedDate < dpIniRealMant.SelectedDate;
+    Notify("La fecha de fin no puede ser anterior a la de inicio."; NotificationType.Error);
+
+    cmbEstadoMant.Selected.Value = "FINALIZADO"
+      && dpRealMant.SelectedDate = dpIniRealMant.SelectedDate
+      && varHFinN <= varHIniN;
+    Notify("La hora de fin debe ser mayor que la hora de inicio."; NotificationType.Error);
+
+    /* ============ 1. VARIABLES BASE ============ */
+    Set(varProcesando; true);;
+    Set(varAhora; Now());;
+    Set(varFuenteReg; If(varFuentePanel = "REVMANT"; "REVMANT"; "DBASIG"));;
+    Set(varEstadoNuevo; cmbEstadoMant.Selected.Value);;
+    Set(varRespTxt; Concat(colPersonalMant; NOMBRE; ", "));;
+
+    /* ============ 2. ASIGNACION = FECHA + HORA (aqui arranca el reloj) ====== */
+    Set(
+        varFechaAsig;
+        dpAsigMant.SelectedDate +
+        If(
+            !IsBlank(varRegMant.ASIGNACION)
+              && DateValue(varRegMant.ASIGNACION) = dpAsigMant.SelectedDate;
+            Time(Hour(varRegMant.ASIGNACION); Minute(varRegMant.ASIGNACION); 0);
+            Time(Hour(varAhora); Minute(varAhora); 0)
+        )
+    );;
+
+    /* ============ 3. ENTREGA ESTIMADA SEGUN PRIORIDAD ============ */
+    Set(
+        varFechaComp;
+        DateAdd(
+            varFechaAsig;
+            Switch(
+                cmbPrioridadMant.Selected.Value;
+                "Urgente"; 1;
+                "Alta 24 hrs"; 1;
+                "Media 72 hrs"; 3;
+                "Baja 1 semana"; 7;
+                "Pendiente"; 30;
+                30
+            );
+            TimeUnit.Days
+        )
+    );;
+
+    /* ============ 4. INICIO / FIN REAL CON HORA MANUAL ============ */
+    Set(
+        varIniReal;
+        If(
+            varEstadoNuevo = "FINALIZADO";
+            dpIniRealMant.SelectedDate
+              + Time(Int(varHIniN); Round(Mod(varHIniN; 1) * 60; 0); 0);
+            varRegMant.'INICIO REAL'
+        )
+    );;
+    Set(
+        varFinReal;
+        If(
+            varEstadoNuevo = "FINALIZADO";
+            dpRealMant.SelectedDate
+              + Time(Int(varHFinN); Round(Mod(varHFinN; 1) * 60; 0); 0);
+            varRegMant.'FIN REAL'
+        )
+    );;
+
+    /* ============ 5. HORAS LABORALES (L-J 7-17, V 7-16, S/D no cuentan) ==== */
+    Set(
+        varHorasTot;
+        If(
+            varEstadoNuevo <> "FINALIZADO";
+            Coalesce(varRegMant.HORAS_TOTALES; 0);
+            With(
+                {
+                    d1: dpIniRealMant.SelectedDate;
+                    d2: dpRealMant.SelectedDate;
+                    h1: varHIniN;
+                    h2: varHFinN
+                };
+                With(
+                    {
+                        c1: Switch(Weekday(d1; StartOfWeek.Monday); 5; 16; 6; 16; 7; 16; 17);
+                        c2: Switch(Weekday(d2; StartOfWeek.Monday); 5; 16; 6; 16; 7; 16; 17)
+                    };
+                    If(
+                        d1 = d2;
+                        Max(0; Round(Min(c2; h2) - Max(7; h1); 2));
+                        Round(
+                            Max(0; c1 - Max(7; h1))
+                            + Max(0; Min(c2; h2) - 7)
+                            + Coalesce(
+                                Sum(
+                                    ForAll(
+                                        Sequence(Max(0; DateDiff(d1; d2; TimeUnit.Days) - 1); 1) As S;
+                                        {
+                                            H: Switch(
+                                                Weekday(DateAdd(d1; S.Value; TimeUnit.Days); StartOfWeek.Monday);
+                                                5; 9;
+                                                6; 0;
+                                                7; 0;
+                                                10
+                                            )
+                                        }
+                                    );
+                                    H
+                                );
+                                0
+                            );
+                            2
+                        )
+                    )
+                )
+            )
+        )
+    );;
+
+    /* ============ 6. HISTORIAL ============ */
+    Set(
+        varHist;
+        Coalesce(varRegMant.HISTORIAL; "") &
+        Text(varAhora; "dd/mm/yyyy hh:mm") & " - " & varEstadoNuevo & " - " & varUsuarioActual &
+        If(varEstadoNuevo = "FINALIZADO"; " - " & Text(varHorasTot; "[$-es-GT]#,##0.00") & " h"; "") &
+        If(IsBlank(txtComentMant.Text); ""; " - " & txtComentMant.Text) &
+        Char(10)
+    );;
+
+    /* ============ 7. GUARDAR ORDEN ============ */
+    Set(
+        varIDOrden;
+        Switch(
+            varFuentePanel;
+
+            "ACTIVO";
+            Patch(
+                DBASIG;
+                Defaults(DBASIG);
+                {
+                    AREA: varRegMant.AREA;
+                    CATEGORIA: varRegMant.CATEGORIA;
+                    DESCRIPCION: varRegMant.DESCRIPCION;
+                    ID_ACTIVO: varIDActivo;
+                    SOLICITANTE: User().FullName;
+                    CORREO: varUsuarioActual;
+                    CREADO: varAhora;
+                    RESPONSABLE: varRespTxt;
+                    ASIGNACION: varFechaAsig;
+                    COMPROMISO: varFechaComp;
+                    'INICIO REAL': varIniReal;
+                    'FIN REAL': varFinReal;
+                    HORAS_TOTALES: varHorasTot;
+                    PRIORIDADES: {Value: cmbPrioridadMant.Selected.Value};
+                    ESTADO: {Value: varEstadoNuevo};
+                    TIPOS: {Value: "INVERNADERO"};
+                    TIPO: {Value: "PREVENTIVO"};
+                    COMENTARIO: txtComentMant.Text;
+                    HISTORIAL: varHist
+                }
+            ).ID;
+
+            "REVMANT";
+            Patch(
+                REVISIONMANT;
+                LookUp(REVISIONMANT; ID = varRegMant.ID);
+                {
+                    RESPONSABLE: varRespTxt;
+                    ESTADO: {Value: varEstadoNuevo};
+                    PRIORIDAD: {Value: cmbPrioridadMant.Selected.Value};
+                    ASIGNACION: varFechaAsig;
+                    COMPROMISO: varFechaComp;
+                    INICIOREAL: varIniReal;
+                    FINREAL: varFinReal;
+                    HORAS_TOTALES: varHorasTot;
+                    COMENTARIO: txtComentMant.Text;
+                    ASIGNO: If(IsBlank(varRegMant.CORREO); User().FullName; varRegMant.SOLICITANTE);
+                    CORREOASIGNO: Coalesce(varRegMant.CORREO; varUsuarioActual)
+                }
+            ).ID;
+
+            Patch(
+                DBASIG;
+                LookUp(DBASIG; ID = varRegMant.ID);
+                {
+                    ESTADO: {Value: varEstadoNuevo};
+                    PRIORIDADES: {Value: cmbPrioridadMant.Selected.Value};
+                    RESPONSABLE: varRespTxt;
+                    ASIGNACION: varFechaAsig;
+                    COMPROMISO: varFechaComp;
+                    'INICIO REAL': varIniReal;
+                    'FIN REAL': varFinReal;
+                    HORAS_TOTALES: varHorasTot;
+                    COMENTARIO: txtComentMant.Text;
+                    HISTORIAL: varHist;
+                    SOLICITANTE: Coalesce(varRegMant.SOLICITANTE; User().FullName);
+                    CORREO: Coalesce(varRegMant.CORREO; varUsuarioActual)
+                }
+            ).ID
+        )
+    );;
+
+    /* ============ 8. PREVENTIVO FINALIZADO: REINICIA EL ACTIVO ============ */
+    If(
+        varTipoPanel = "PREVENTIVO" && varEstadoNuevo = "FINALIZADO" && varIDActivo > 0;
+        Patch(
+            DB;
+            LookUp(DB; ID = varIDActivo);
+            {
+                INSTALACION: dpRealMant.SelectedDate;
+                CAMBIO: DateAdd(
+                    dpRealMant.SelectedDate;
+                    Value(Coalesce(LookUp(DB; ID = varIDActivo).'VIDA UTIL'; 0));
+                    TimeUnit.Days
+                );
+                HORAS_ACUM: 0;
+                'DIAS RESTANTES': Value(Coalesce(LookUp(DB; ID = varIDActivo).'VIDA UTIL'; 0));
+                ESTADOS: {Value: "VIGENTE"};
+                ULTIMO_CALCULO: varAhora
+            }
+        )
+    );;
+
+    /* ============ 9. CORREO ============ */
+    If(
+        (varTipoPanel = "CORRECTIVO" && varEstadoNuevo in ["ASIGNADO"; "FINALIZADO"])
+          || (varTipoPanel in ["PREVENTIVO"; "REVISION"] && varEstadoNuevo = "FINALIZADO");
+        With(
+            {
+                dest: Coalesce(varRegMant.CORREO; varUsuarioActual);
+                tipoTxt: Switch(
+                    varTipoPanel;
+                    "PREVENTIVO"; "Mantenimiento preventivo";
+                    "REVISION"; "Revision de invernadero";
+                    "Solicitud correctiva"
+                )
+            };
+            Office365Outlook.SendEmailV2(
+                dest;
+                tipoTxt & " " & varEstadoNuevo & " - " & Coalesce(varRegMant.AREA; "");
+                "<div style='font-family:Segoe UI,Arial,sans-serif;color:#16273a;font-size:14px'>" &
+                "<h3 style='color:#092162;margin-bottom:4px'>" & tipoTxt & " &ndash; actualizacion</h3>" &
+                "<p>Hola <b>" & Coalesce(varRegMant.SOLICITANTE; "") & "</b>, la tarea <b>" &
+                Coalesce(varRegMant.DESCRIPCION; "") & "</b> del area <b>" &
+                Coalesce(varRegMant.AREA; "") & "</b> cambio a estado <b style='color:" &
+                Switch(varEstadoNuevo; "ASIGNADO"; "#e8a020"; "FINALIZADO"; "#16a34a"; "#0078d4") &
+                "'>" & varEstadoNuevo & "</b>.</p>" &
+                "<table style='border-collapse:collapse;font-size:13px;min-width:420px'>" &
+                Concat(
+                    Table(
+                        {k: "Tipo"; v: tipoTxt};
+                        {k: "Area"; v: Coalesce(varRegMant.AREA; "—")};
+                        {k: "Descripcion"; v: Coalesce(varRegMant.DESCRIPCION; "—")};
+                        {k: "Responsable"; v: varRespTxt};
+                        {k: "Prioridad"; v: cmbPrioridadMant.Selected.Value};
+                        {k: "Asignacion"; v: Text(varFechaAsig; "dd/mm/yyyy hh:mm")};
+                        {k: "Entrega estimada"; v: Text(varFechaComp; "dd/mm/yyyy hh:mm")};
+                        {k: "Inicio real"; v: If(IsBlank(varIniReal); "—"; Text(varIniReal; "dd/mm/yyyy hh:mm"))};
+                        {k: "Fin real"; v: If(IsBlank(varFinReal); "—"; Text(varFinReal; "dd/mm/yyyy hh:mm"))};
+                        {k: "Horas laborales"; v: Text(varHorasTot; "[$-es-GT]#,##0.00") & " h"};
+                        {
+                            k: "Cumplimiento";
+                            v: If(
+                                varEstadoNuevo <> "FINALIZADO"; "—";
+                                varFinReal <= varFechaComp; "EN FECHA";
+                                "FUERA DE FECHA"
+                            )
+                        };
+                        {
+                            k: "Proximo cambio";
+                            v: If(
+                                varTipoPanel = "PREVENTIVO" && varIDActivo > 0;
+                                Text(LookUp(DB; ID = varIDActivo).CAMBIO; "dd/mm/yyyy");
+                                "—"
+                            )
+                        };
+                        {k: "Estado"; v: varEstadoNuevo};
+                        {k: "Comentario"; v: If(IsBlank(txtComentMant.Text); "—"; txtComentMant.Text)}
+                    ) As F;
+                    "<tr><td style='padding:6px 12px;border:1px solid #e3eaf1;background:#f4f8fc;font-weight:600;color:#5a6b7b'>" &
+                    F.k & "</td><td style='padding:6px 12px;border:1px solid #e3eaf1'>" & F.v & "</td></tr>"
+                ) &
+                "</table>" &
+                "<p style='font-size:12px;color:#93a4b4;margin-top:14px'>Mensaje automatico &middot; Equipo de Mantenimiento</p></div>";
+                {IsHtml: true}
+            )
+        )
+    );;
+
+    /* ============ 10. CIERRE ============ */
+    Refresh(DBASIG);;
+    If(varFuentePanel = "REVMANT"; Refresh(REVISIONMANT));;
+    If(varTipoPanel = "PREVENTIVO"; Refresh(DB));;
+    Set(varProcesando; false);;
+    Set(varPanelMantAbierto; false);;
+    Clear(colPersonalMant);;
+    If(varSeccionActiva in ["Pipeline"; "KPI"; "Registros"]; Select(btnBuildMant));;
+    If(varSeccionActiva = "Calendario"; Select(btnBuildCalM1));;
+    Notify(
+        Switch(
+            varEstadoNuevo;
+            "ASIGNADO"; "Asignado. El tiempo empieza a contar desde " & Text(varFechaAsig; "dd/mm/yyyy hh:mm");
+            "FINALIZADO"; "Finalizado. Horas laborales: " & Text(varHorasTot; "[$-es-GT]#,##0.00") & " h" &
+                          If(varTipoPanel = "PREVENTIVO"; ". El activo reinicio su fecha de cambio."; "");
+            "Actualizado correctamente."
+        );
+        NotificationType.Success
+    )
+)
+
+
+###############################################################################
+# PARTE 6 - BOTONES QUE ABREN EL PANEL (AGREGAR 4 LINEAS A CADA UNO)
+###############################################################################
+
+Hay 3 botones ocultos que cargan el registro en el panel. A LOS TRES hay que
+agregarles el mismo bloque AL FINAL de su OnSelect, para que los campos de
+hora se precarguen bien.
+
+CONTROLES:  btnAbrirDBASIG  |  btnAbrirRevMant  |  btnAbrirActivo
+UBICACION:  raiz de la pantalla SOLICITUD DE MANTENIMIENTO
+PROPIEDAD:  OnSelect  ->  agregar al final (despues de Set(varPanelMantAbierto, true))
+
+;;
+Set(varHIniN; If(IsBlank(varRegMant.'INICIO REAL'); 7; Hour(varRegMant.'INICIO REAL') + Minute(varRegMant.'INICIO REAL') / 60));;
+Set(varHFinN; If(IsBlank(varRegMant.'FIN REAL'); 16; Hour(varRegMant.'FIN REAL') + Minute(varRegMant.'FIN REAL') / 60));;
+Reset(txtHoraIniMant);;
+Reset(txtHoraFinMant)
+
+NOTA: en btnAbrirActivo el registro se arma manualmente y 'INICIO REAL' /
+'FIN REAL' vienen en blanco, asi que el bloque dejara 7:00 y 16:00. Correcto.
+
+
+###############################################################################
+# PARTE 7 - btnBuildMant  (REEMPLAZAR OnSelect COMPLETO)
+###############################################################################
+
+UBICACION: raiz de la pantalla SOLICITUD DE MANTENIMIENTO
+
+Cambios: ya no lee BITACORA_MANT, y agrega PERSONAS, HORA_INI, HORA_FIN
+y ATRASADA para alimentar los KPIs nuevos.
+
+-------------------------------------------------------------------------------
+CONTROL: btnBuildMant  ->  OnSelect
+-------------------------------------------------------------------------------
+=ClearCollect(
+    colMant;
+    ForAll(
+        Filter(DBASIG; CREADO >= varRangoD1; CREADO < varRangoD2) As X;
+        {
+            Fuente: "DBASIG";
+            IDRef: X.ID;
+            ID_ACTIVO: Coalesce(X.ID_ACTIVO; 0);
+            TIPO: {Value: Coalesce(X.TIPO.Value; "CORRECTIVO")};
+            ESTADO: {Value: Coalesce(X.ESTADO.Value; "PENDIENTE")};
+            PRIORIDADES: {Value: Coalesce(X.PRIORIDADES.Value; "SIN PRIORIDAD")};
+            AREA: X.AREA;
+            CATEGORIA: X.CATEGORIA;
+            DESCRIPCION: X.DESCRIPCION;
+            SOLICITANTE: X.SOLICITANTE;
+            RESPONSABLE: X.RESPONSABLE;
+            PERSONAS: Max(1; CountRows(Split(Coalesce(X.RESPONSABLE; ""); ", ")));
+            CREADO: X.CREADO;
+            ASIGNACION: X.ASIGNACION;
+            COMPROMISO: X.COMPROMISO;
+            'INICIO REAL': X.'INICIO REAL';
+            'FIN REAL': X.'FIN REAL';
+            HORA_INI: If(IsBlank(X.'INICIO REAL'); ""; Text(X.'INICIO REAL'; "hh:mm"));
+            HORA_FIN: If(IsBlank(X.'FIN REAL'); ""; Text(X.'FIN REAL'; "hh:mm"));
+            HORAS_TOTALES: Coalesce(X.HORAS_TOTALES; 0);
+            ATRASADA: IsBlank(X.'FIN REAL') && !IsBlank(X.COMPROMISO) && X.COMPROMISO < Now()
+        }
+    )
+);;
+Collect(
+    colMant;
+    ForAll(
+        Filter(REVISIONMANT; TIPO.Value = "REPARACION"; CREADO >= varRangoD1; CREADO < varRangoD2) As R;
+        {
+            Fuente: "REVMANT";
+            IDRef: R.ID;
+            ID_ACTIVO: 0;
+            TIPO: {Value: "REVISION"};
+            ESTADO: {Value: Coalesce(R.ESTADO.Value; "PENDIENTE")};
+            PRIORIDADES: {Value: Coalesce(R.PRIORIDAD.Value; "SIN PRIORIDAD")};
+            AREA: R.AREA;
+            CATEGORIA: R.CATEGORIA;
+            DESCRIPCION: R.DESCRIPCION;
+            SOLICITANTE: Coalesce(R.ASIGNO; R.RESPONSABLE);
+            RESPONSABLE: R.RESPONSABLE;
+            PERSONAS: Max(1; CountRows(Split(Coalesce(R.RESPONSABLE; ""); ", ")));
+            CREADO: R.CREADO;
+            ASIGNACION: R.ASIGNACION;
+            COMPROMISO: R.COMPROMISO;
+            'INICIO REAL': R.INICIOREAL;
+            'FIN REAL': R.FINREAL;
+            HORA_INI: If(IsBlank(R.INICIOREAL); ""; Text(R.INICIOREAL; "hh:mm"));
+            HORA_FIN: If(IsBlank(R.FINREAL); ""; Text(R.FINREAL; "hh:mm"));
+            HORAS_TOTALES: Coalesce(R.HORAS_TOTALES; 0);
+            ATRASADA: IsBlank(R.FINREAL) && !IsBlank(R.COMPROMISO) && R.COMPROMISO < Now()
+        }
+    )
+);;
+Collect(
+    colMant;
+    ForAll(
+        Filter(REVISIONEQUIPOS; PROGRAMADA >= varRangoD1; PROGRAMADA < varRangoD2) As Q;
+        {
+            Fuente: "REVEQ";
+            IDRef: Q.ID;
+            ID_ACTIVO: Q.ID_ACTIVO;
+            TIPO: {Value: "REVISION"};
+            ESTADO: {Value: If(Q.ESTADO.Value = "REALIZADA"; "FINALIZADO"; "PENDIENTE")};
+            PRIORIDADES: {Value: "Bitacora"};
+            AREA: Q.AREA;
+            CATEGORIA: Q.CATEGORIA;
+            DESCRIPCION: "Bitacora: " & Q.EQUIPO;
+            SOLICITANTE: Q.ASIGNO;
+            RESPONSABLE: Q.RESPONSABLE;
+            PERSONAS: 1;
+            CREADO: Q.CREADO;
+            ASIGNACION: Q.CREADO;
+            COMPROMISO: Q.PROGRAMADA;
+            'INICIO REAL': Q.FECHAREV;
+            'FIN REAL': Q.FECHAREV;
+            HORA_INI: "";
+            HORA_FIN: "";
+            HORAS_TOTALES: 0;
+            ATRASADA: Q.ESTADO.Value <> "REALIZADA" && Q.PROGRAMADA < Now()
+        }
+    )
+);;
+ClearCollect(
+    colKpi;
+    Filter(
+        colMant;
+        Coalesce(cmbKAct_1.Selected.Value; "TODOS") = "TODOS"
+          || TIPO.Value = Coalesce(cmbKAct_1.Selected.Value; "TODOS")
+    )
+)
+
+
+###############################################################################
+# PARTE 8 - PIPELINE: tarjeta "En proceso" -> "ATRASADAS"
+###############################################################################
+
+UBICACION: Container73 > vPipeMant1 > conPipeKpis1 > cardPProc1 > cardBody1_14
+
+-------------------------------------------------------------------------------
+CONTROL: lblKL1_14  ->  Text
+-------------------------------------------------------------------------------
+="Atrasadas"
+
+-------------------------------------------------------------------------------
+CONTROL: lblKV1_14  ->  Text
+-------------------------------------------------------------------------------
+=CountRows(
+    Filter(
+        colMant;
+        ATRASADA = true;
+        (cmbPipeAct.Selected.Value = "TODOS" || TIPO.Value = cmbPipeAct.Selected.Value);
+        (IsBlank(txtPipeMant1.Text)
+          || txtPipeMant1.Text in AREA
+          || txtPipeMant1.Text in DESCRIPCION
+          || txtPipeMant1.Text in RESPONSABLE)
+    )
+)
+
+-------------------------------------------------------------------------------
+CONTROL: lblKD1_14  ->  Text
+-------------------------------------------------------------------------------
+="vencieron su entrega"
+
+-------------------------------------------------------------------------------
+CONTROL: recBar1_14  ->  Fill
+-------------------------------------------------------------------------------
+=ColorValue(hexVenc)
+
+-------------------------------------------------------------------------------
+CONTROL: btnFExpSem   UBICACION: vPipeMant1 > Container92_1
+-------------------------------------------------------------------------------
+Este boton filtraba "EN PROCESO". Ahora filtra atrasadas.
+
+Text:
+="Atrasadas"
+
+Color:
+=If(varEstadoFiltro = "ATRASADA"; Color.White; clrInk)
+
+Fill:
+=If(varEstadoFiltro = "ATRASADA"; clrDanger; clrSurface)
+
+OnSelect:
+=Set(varEstadoFiltro; "ATRASADA")
+
+-------------------------------------------------------------------------------
+CONTROL: glKbSol   ->  Items    UBICACION: vPipeMant1 > conKanban > colSol
+-------------------------------------------------------------------------------
+Hay que reconocer el filtro nuevo "ATRASADA".
+
+=Sort(
+    Filter(
+        colMant;
+        (cmbPipeAct.Selected.Value = "TODOS" || TIPO.Value = cmbPipeAct.Selected.Value);
+        (
+            varEstadoFiltro = "TODOS"
+            || (varEstadoFiltro = "ATRASADA" && ATRASADA = true)
+            || (varEstadoFiltro <> "ATRASADA" && ESTADO.Value = varEstadoFiltro)
+        );
+        (IsBlank(txtPipeMant1.Text)
+          || txtPipeMant1.Text in AREA
+          || txtPipeMant1.Text in DESCRIPCION
+          || txtPipeMant1.Text in SOLICITANTE
+          || txtPipeMant1.Text in RESPONSABLE)
+    );
+    CREADO;
+    SortOrder.Descending
+)
+
+-------------------------------------------------------------------------------
+CONTROL: Label82    UBICACION: vGanttMant1 > Container87
+-------------------------------------------------------------------------------
+Es la leyenda del Gantt que decia "EN PROCESO".
+
+Text:
+="ATRASADA"
+
+Color:
+=ColorValue(hexVenc)
+
+
+NOTA: los demas controles donde aparece "EN PROCESO" (Rectangle9, Label90,
+Container11, Container12, Prioridad_3, Prioridad_12, DataCardValue34_1,
+htmlDiaM, btnBuildCarga, btnBuildGantt1) solo lo usan como rama de color
+dentro de un Switch. Esa rama simplemente dejara de coincidir. NO HAY QUE
+TOCARLOS.
+
+
+###############################################################################
+# PARTE 9 - vKpiMant  (adaptar 2 tarjetas; las otras 3 quedan igual)
+###############################################################################
+
+UBICACION: Container73 > vKpiMant > rowImpKpis
+
+La tarjeta cardKTEjec medía "Inicio -> Fin" en DIAS. Ahora mide las HORAS
+LABORALES reales, que es el indicador que el sistema ya puede capturar.
+La tarjeta cardKTResp pasa a medir "Asignacion -> Fin", porque el reloj
+ahora arranca en la asignacion.
+
+-------------------------------------------------------------------------------
+CONTROL: lblKL1_17  ->  Text     (tarjeta cardKTResp)
+-------------------------------------------------------------------------------
+="Asignacion -> Fin"
+
+-------------------------------------------------------------------------------
+CONTROL: lblKV1_17  ->  Text
+-------------------------------------------------------------------------------
+=With(
+    {
+        k: Filter(
+            colKpi;
+            IsBlank(txtKpiBuscar.Text)
+              || txtKpiBuscar.Text in DESCRIPCION
+              || txtKpiBuscar.Text in CATEGORIA
+              || txtKpiBuscar.Text in SOLICITANTE
+              || txtKpiBuscar.Text in RESPONSABLE
+              || txtKpiBuscar.Text in AREA
+        )
+    };
+    With(
+        {d: Filter(k; !IsBlank(ASIGNACION) && !IsBlank('FIN REAL'))};
+        If(
+            CountRows(d) = 0;
+            "—";
+            Text(Average(d; Max(0; DateDiff(ASIGNACION; 'FIN REAL'; TimeUnit.Days))); "[$-en-US]0.#") & " d"
+        )
+    )
+)
+
+-------------------------------------------------------------------------------
+CONTROL: lblKD1_17  ->  Text
+-------------------------------------------------------------------------------
+="dias desde la asignacion"
+
+-------------------------------------------------------------------------------
+CONTROL: lblKL1_18  ->  Text     (tarjeta cardKTEjec)
+-------------------------------------------------------------------------------
+="Horas laborales"
+
+-------------------------------------------------------------------------------
+CONTROL: lblKV1_18  ->  Text
+-------------------------------------------------------------------------------
+=With(
+    {
+        k: Filter(
+            colKpi;
+            IsBlank(txtKpiBuscar.Text)
+              || txtKpiBuscar.Text in DESCRIPCION
+              || txtKpiBuscar.Text in CATEGORIA
+              || txtKpiBuscar.Text in SOLICITANTE
+              || txtKpiBuscar.Text in RESPONSABLE
+              || txtKpiBuscar.Text in AREA
+        )
+    };
+    With(
+        {d: Filter(k; ESTADO.Value = "FINALIZADO"; HORAS_TOTALES > 0)};
+        If(
+            CountRows(d) = 0;
+            "—";
+            Text(Sum(d; HORAS_TOTALES); "[$-es-GT]#,##0.0") & " h"
+        )
+    )
+)
+
+-------------------------------------------------------------------------------
+CONTROL: lblKD1_18  ->  Text
+-------------------------------------------------------------------------------
+=With(
+    {
+        d: Filter(
+            colKpi;
+            ESTADO.Value = "FINALIZADO";
+            HORAS_TOTALES > 0;
+            IsBlank(txtKpiBuscar.Text)
+              || txtKpiBuscar.Text in DESCRIPCION
+              || txtKpiBuscar.Text in CATEGORIA
+              || txtKpiBuscar.Text in SOLICITANTE
+              || txtKpiBuscar.Text in RESPONSABLE
+              || txtKpiBuscar.Text in AREA
+        )
+    };
+    If(
+        CountRows(d) = 0;
+        "sin datos";
+        "promedio " & Text(Average(d; HORAS_TOTALES); "[$-es-GT]#,##0.0") & " h / orden"
+    )
+)
+
+-------------------------------------------------------------------------------
+CONTROL: recBar1_18  ->  Fill
+-------------------------------------------------------------------------------
+=ColorValue(hexProc)
+
+QUEDAN SIN CAMBIO: lblKV1_16 (Cumplimiento), lblKV1_20 (Solicitud -> Fin),
+lblKV1_19 y lblKD1_19 (A tiempo / Fuera + atrasadas). Su logica ya es correcta.
+
+
+###############################################################################
+# PARTE 10 - vKRegistros  (pasa de sesiones de bitacora a ordenes finalizadas)
+###############################################################################
+
+UBICACION: Container73 > vKRegistros
+
+-------------------------------------------------------------------------------
+CONTROL: btnBuildHoras_1  ->  OnSelect
+-------------------------------------------------------------------------------
+Ya no construye colBitReg. Solo reajusta el rango y reconstruye colMant.
+
+=With(
+    {
+        d1: Coalesce(dddesde02_1.SelectedDate; Date(varAnioFiltro; 1; 1));
+        d2: DateAdd(Coalesce(ddhasta02_1.SelectedDate; Date(varAnioFiltro; 12; 31)); 1; TimeUnit.Days)
+    };
+    Set(varRangoD1; d1);
+    Set(varRangoD2; d2)
+);;
+Select(btnBuildMant)
+
+-------------------------------------------------------------------------------
+CONTROL: lblKL1_21  ->  Text      (tarjeta cardKCumpl_1)
+-------------------------------------------------------------------------------
+="Horas totales"     (queda igual, no tocar)
+
+-------------------------------------------------------------------------------
+CONTROL: lblKV1_22  ->  Text
+-------------------------------------------------------------------------------
+=Text(Sum(fxRegistros; Coalesce(HORAS_TOTALES; 0)); "[$-es-GT]#,##0.00") & " h"
+
+-------------------------------------------------------------------------------
+CONTROL: lblKD1_22  ->  Text
+-------------------------------------------------------------------------------
+=CountRows(fxRegistros) & " ordenes finalizadas"
+
+-------------------------------------------------------------------------------
+CONTROL: lblKL1_22  ->  Text      (tarjeta cardKTResp_1)
+-------------------------------------------------------------------------------
+="Ordenes"
+
+-------------------------------------------------------------------------------
+CONTROL: lblKV1_23  ->  Text
+-------------------------------------------------------------------------------
+=CountRows(fxRegistros)
+
+-------------------------------------------------------------------------------
+CONTROL: lblKD1_23  ->  Text
+-------------------------------------------------------------------------------
+=CountRows(Filter(fxRegistros; !IsBlank('FIN REAL') && !IsBlank(COMPROMISO) && 'FIN REAL' <= COMPROMISO))
+ & " en fecha / "
+ & CountRows(Filter(fxRegistros; !IsBlank('FIN REAL') && !IsBlank(COMPROMISO) && 'FIN REAL' > COMPROMISO))
+ & " fuera"
+
+-------------------------------------------------------------------------------
+CONTROL: lblKL1_23  ->  Text      (tarjeta cardKTEjec_1)
+-------------------------------------------------------------------------------
+="Horas-hombre"     (queda igual, no tocar)
+
+-------------------------------------------------------------------------------
+CONTROL: lblKV1_24  ->  Text
+-------------------------------------------------------------------------------
+=Text(
+    Sum(fxRegistros; Coalesce(HORAS_TOTALES; 0) * Max(1; Coalesce(PERSONAS; 1)));
+    "[$-es-GT]#,##0.00"
+) & " h"
+
+-------------------------------------------------------------------------------
+CONTROL: lblKD1_24  ->  Text
+-------------------------------------------------------------------------------
+="horas laborales x personas"
+
+-------------------------------------------------------------------------------
+CONTROL: lblKL1_24  ->  Text      (tarjeta cardKAtras_1)
+-------------------------------------------------------------------------------
+="Promedio por orden"
+
+-------------------------------------------------------------------------------
+CONTROL: lblKV1_25  ->  Text
+-------------------------------------------------------------------------------
+=If(
+    CountRows(fxRegistros) = 0;
+    "—";
+    Text(Average(fxRegistros; Coalesce(HORAS_TOTALES; 0)); "[$-es-GT]#,##0.00") & " h"
+)
+
+-------------------------------------------------------------------------------
+CONTROL: lblKD1_25  ->  Text
+-------------------------------------------------------------------------------
+="duracion media de ejecucion"
+
+-------------------------------------------------------------------------------
+CONTROL: lblKV_HrsAct_1  ->  Text  (tarjeta cardKVenc_1)
+-------------------------------------------------------------------------------
+="Areas / Responsables"
+
+-------------------------------------------------------------------------------
+CONTROL: lblKV1_26  ->  Text
+-------------------------------------------------------------------------------
+=CountRows(Distinct(fxRegistros; AREA)) & " / " & CountRows(Distinct(fxRegistros; RESPONSABLE))
+
+-------------------------------------------------------------------------------
+CONTROL: lblKD1_26  ->  Text
+-------------------------------------------------------------------------------
+="areas atendidas / responsables"
+
+-------------------------------------------------------------------------------
+CONTROL: glKpiTabladata_1  ->  Items    UBICACION: vKRegistros > Container80_2
+-------------------------------------------------------------------------------
+=Sort(fxRegistros; 'FIN REAL'; SortOrder.Descending)
+
+-------------------------------------------------------------------------------
+ETIQUETAS DE LA FILA de glKpiTabladata_1 (todas dentro de Container81_7)
+-------------------------------------------------------------------------------
+Label84_7  ->  Text:
+=If(IsBlank(ThisItem.'INICIO REAL'); "—"; Text(ThisItem.'INICIO REAL'; "dd/mm/yy"))
+
+Label78_7  ->  Text:
+=Coalesce(ThisItem.RESPONSABLE; "—")
+
+Label70_7  ->  Text:
+=ThisItem.TIPO.Value
+
+Label66_7  ->  Text:
+=ThisItem.AREA & " - " & ThisItem.DESCRIPCION
+
+Label92_8  ->  Text:
+=If(IsBlank(ThisItem.HORA_INI); "—"; ThisItem.HORA_INI)
+
+Label92_9  ->  Text:
+=If(IsBlank(ThisItem.HORA_FIN); "—"; ThisItem.HORA_FIN)
+
+Label91_7  ->  Text:
+=Round(Coalesce(ThisItem.HORAS_TOTALES; 0) * 60; 0)
+
+Label85_7  ->  Text:
+=Text(Coalesce(ThisItem.HORAS_TOTALES; 0); "[$-es-GT]#,##0.00") & " h"
+
+Label92_7  ->  Text:
+=If(
+    IsBlank(ThisItem.'FIN REAL') || IsBlank(ThisItem.COMPROMISO);
+    "—";
+    ThisItem.'FIN REAL' <= ThisItem.COMPROMISO;
+    "EN FECHA";
+    "FUERA"
+)
+
+Label92_7  ->  Color:
+=If(
+    IsBlank(ThisItem.'FIN REAL') || IsBlank(ThisItem.COMPROMISO);
+    clrMuted;
+    ThisItem.'FIN REAL' <= ThisItem.COMPROMISO;
+    ColorValue(hexFin);
+    ColorValue(hexVenc)
+)
+
+-------------------------------------------------------------------------------
+ENCABEZADOS de la tabla (Container81_5, hoy Visible = false -> ponerlo true)
+-------------------------------------------------------------------------------
+Container81_5  ->  Visible:
+=true
+
+Y renombrar los Label del encabezado para que coincidan, en este orden:
+  Label66_5 -> "Area - Descripcion"
+  (los demas encabezados, en el orden en que aparezcan):
+  "Fecha" | "Responsable" | "Tipo" | "Hora ini" | "Hora fin" | "Minutos" |
+  "Horas" | "Cumplimiento"
+
+
+###############################################################################
+# PARTE 11 - EXPORTACION A EXCEL (Office Script + Power Automate)
+###############################################################################
+
+Se crean DOS flujos. Ninguno manda datos desde Power Apps: el flujo lee
+SharePoint directo, asi evita el limite de 2000 filas de la app.
+
+===============================================================================
+11.1  PREPARAR LA PLANTILLA
+===============================================================================
+1. En SharePoint, crear una biblioteca o carpeta:  /Documentos compartidos/EXPORT_MANT
+2. Subir ahi un Excel vacio llamado:  PLANTILLA_MANT.xlsx
+   Debe tener 3 hojas, nombradas exactamente:
+       PREVENTIVOS
+       CORRECTIVOS
+       REVISION
+3. Crear otra carpeta:  /Documentos compartidos/EXPORT_MANT/SALIDAS
+
+===============================================================================
+11.2  OFFICE SCRIPT  (nombre: LlenarHojaMant)
+===============================================================================
+Excel en linea -> pestana Automatizar -> Nuevo script -> pegar y guardar.
+
+function main(
+  workbook: ExcelScript.Workbook,
+  hoja: string,
+  datosJson: string
+) {
+  const datos = JSON.parse(datosJson) as Record<string, string | number | boolean>[];
+
+  let sheet = workbook.getWorksheet(hoja);
+  if (!sheet) {
+    sheet = workbook.addWorksheet(hoja);
+  }
+
+  // limpiar tablas y contenido previo
+  for (const t of sheet.getTables()) {
+    t.delete();
+  }
+  const usado = sheet.getUsedRange();
+  if (usado) {
+    usado.clear(ExcelScript.ClearApplyTo.all);
+  }
+
+  if (datos.length === 0) {
+    sheet.getRange("A1").setValue("Sin registros en el rango seleccionado.");
+    return;
+  }
+
+  const encabezados: string[] = Object.keys(datos[0]);
+  const matriz: (string | number | boolean)[][] = [];
+  matriz.push(encabezados);
+
+  for (const fila of datos) {
+    const r: (string | number | boolean)[] = [];
+    for (const h of encabezados) {
+      const v = fila[h];
+      r.push(v === null || v === undefined ? "" : v);
+    }
+    matriz.push(r);
+  }
+
+  const rango = sheet.getRangeByIndexes(0, 0, matriz.length, encabezados.length);
+  rango.setValues(matriz);
+
+  const cab = sheet.getRangeByIndexes(0, 0, 1, encabezados.length);
+  cab.getFormat().getFill().setColor("#092162");
+  cab.getFormat().getFont().setColor("#FFFFFF");
+  cab.getFormat().getFont().setBold(true);
+
+  const tabla = workbook.addTable(rango, true);
+  tabla.setName("T_" + hoja);
+
+  rango.getFormat().autofitColumns();
+  sheet.getFreezePanes().freezeRows(1);
+}
+
+===============================================================================
+11.3  FLUJO 1:  MANT_Exportar_Preventivos
+===============================================================================
+Disparador: Power Apps (V2)
+  - No necesita parametros de entrada.
+
+PASO 1 - Inicializar variable
+  Nombre: NombreArchivo     Tipo: Cadena
+  Valor:  concat('PREVENTIVOS_', formatDateTime(utcNow(),'yyyyMMdd_HHmmss'), '.xlsx')
+
+PASO 2 - SharePoint -> Obtener elementos
+  Sitio:  tu sitio
+  Lista:  DB
+  Consulta ODATA: (dejar vacio)
+  Configuracion -> Paginacion: ACTIVADA, Umbral: 5000
+
+PASO 3 - Operaciones de datos -> Seleccionar
+  Desde:  value   (salida del paso 2)
+  Mapa (clave -> valor):
+    ID                 -> item()?['ID']
+    AREA               -> item()?['AREA']
+    MODULO             -> item()?['MODULO']
+    CATEGORIA          -> item()?['CATEGORIA']
+    DESCRIPCION        -> item()?['DESCRIPCION']
+    USO                -> item()?['USO']
+    UNIDAD MEDIDA      -> item()?['UNIDAD_x0020_MEDIDA']
+    INSTALACION        -> formatDateTime(item()?['INSTALACION'],'dd/MM/yyyy')
+    VIDA UTIL          -> item()?['VIDA_x0020_UTIL']
+    PROXIMO CAMBIO     -> formatDateTime(item()?['CAMBIO'],'dd/MM/yyyy')
+    DIAS RESTANTES     -> item()?['DIAS_x0020_RESTANTES']
+    HORAS ACUMULADAS   -> item()?['HORAS_ACUM']
+    ESTADO             -> item()?['ESTADOS']?['Value']
+    ULTIMO CALCULO     -> formatDateTime(item()?['ULTIMO_CALCULO'],'dd/MM/yyyy HH:mm')
+
+  NOTA: los nombres internos con _x0020_ son los que SharePoint asigna a
+  columnas con espacios. Si tu columna se llama distinto, usa el selector
+  de contenido dinamico en lugar de escribirlo a mano.
+
+PASO 4 - SharePoint -> Copiar archivo
+  Sitio de origen:   tu sitio
+  Archivo de origen: /Documentos compartidos/EXPORT_MANT/PLANTILLA_MANT.xlsx
+  Sitio de destino:  tu sitio
+  Carpeta destino:   /Documentos compartidos/EXPORT_MANT/SALIDAS
+  Si ya existe:      Reemplazar
+  (Despues de copiar, renombra con "Actualizar propiedades de archivo" o
+   usa directamente el Id del archivo copiado.)
+
+PASO 5 - Excel Online (Business) -> Ejecutar script
+  Ubicacion:  SharePoint
+  Biblioteca: Documentos compartidos
+  Archivo:    Id del archivo copiado (salida del paso 4)
+  Script:     LlenarHojaMant
+  hoja:       PREVENTIVOS
+  datosJson:  string(body('Seleccionar'))     <-- expresion
+
+PASO 6 - SharePoint -> Crear vinculo para compartir
+  Archivo:  Id del archivo copiado
+  Tipo:     Ver
+  Ambito:   Organizacion
+
+PASO 7 - Responder a Power Apps o flujo
+  Salida de texto:  Nombre = urlArchivo
+  Valor = body('Crear_vinculo_para_compartir')?['link']?['webUrl']
+
+===============================================================================
+11.4  FLUJO 2:  MANT_Exportar_Correctivos_Revision
+===============================================================================
+Mismo esquema, pero con DOS orígenes y DOS ejecuciones de script sobre el
+MISMO archivo copiado.
+
+Disparador: Power Apps (V2)
+
+PASO 1 - SharePoint -> Obtener elementos  (renombrar: Obtener_DBASIG)
+  Lista: DBASIG
+  Consulta ODATA:  TIPO eq 'CORRECTIVO'
+  Paginacion: ACTIVADA, Umbral 5000
+
+PASO 2 - Operaciones de datos -> Seleccionar  (renombrar: Sel_Correctivos)
+  Desde: value de Obtener_DBASIG
+  Mapa:
+    ID                 -> item()?['ID']
+    TIPO               -> item()?['TIPO']?['Value']
+    AREA               -> item()?['AREA']
+    CATEGORIA          -> item()?['CATEGORIA']
+    DESCRIPCION        -> item()?['DESCRIPCION']
+    SOLICITANTE        -> item()?['SOLICITANTE']
+    CORREO             -> item()?['CORREO']
+    RESPONSABLE        -> item()?['RESPONSABLE']
+    PRIORIDAD          -> item()?['PRIORIDADES']?['Value']
+    ESTADO             -> item()?['ESTADO']?['Value']
+    CREADO             -> formatDateTime(item()?['CREADO'],'dd/MM/yyyy HH:mm')
+    ASIGNACION         -> formatDateTime(item()?['ASIGNACION'],'dd/MM/yyyy HH:mm')
+    ENTREGA ESTIMADA   -> formatDateTime(item()?['COMPROMISO'],'dd/MM/yyyy HH:mm')
+    INICIO REAL        -> formatDateTime(item()?['INICIO_x0020_REAL'],'dd/MM/yyyy HH:mm')
+    FIN REAL           -> formatDateTime(item()?['FIN_x0020_REAL'],'dd/MM/yyyy HH:mm')
+    HORA INICIO        -> formatDateTime(item()?['INICIO_x0020_REAL'],'HH:mm')
+    HORA FIN           -> formatDateTime(item()?['FIN_x0020_REAL'],'HH:mm')
+    HORAS LABORALES    -> item()?['HORAS_TOTALES']
+    COMENTARIO         -> item()?['COMENTARIO']
+
+PASO 3 - SharePoint -> Obtener elementos  (renombrar: Obtener_REVISION)
+  Lista: REVISIONMANT
+  Consulta ODATA:  TIPO eq 'REPARACION'
+  Paginacion: ACTIVADA, Umbral 5000
+
+PASO 4 - Operaciones de datos -> Seleccionar  (renombrar: Sel_Revision)
+  Desde: value de Obtener_REVISION
+  Mapa:
+    ID                 -> item()?['ID']
+    IDREVISION         -> item()?['IDREVISION']
+    AREA               -> item()?['AREA']
+    CATEGORIA          -> item()?['CATEGORIA']
+    DESCRIPCION        -> item()?['DESCRIPCION']
+    No                 -> item()?['No']
+    ASIGNO             -> item()?['ASIGNO']
+    RESPONSABLE        -> item()?['RESPONSABLE']
+    PRIORIDAD          -> item()?['PRIORIDAD']?['Value']
+    TIPO               -> item()?['TIPO']?['Value']
+    ESTADO             -> item()?['ESTADO']?['Value']
+    FECHA REVISION     -> formatDateTime(item()?['FECHAREV'],'dd/MM/yyyy')
+    CREADO             -> formatDateTime(item()?['CREADO'],'dd/MM/yyyy HH:mm')
+    ASIGNACION         -> formatDateTime(item()?['ASIGNACION'],'dd/MM/yyyy HH:mm')
+    ENTREGA ESTIMADA   -> formatDateTime(item()?['COMPROMISO'],'dd/MM/yyyy HH:mm')
+    INICIO REAL        -> formatDateTime(item()?['INICIOREAL'],'dd/MM/yyyy HH:mm')
+    FIN REAL           -> formatDateTime(item()?['FINREAL'],'dd/MM/yyyy HH:mm')
+    HORA INICIO        -> formatDateTime(item()?['INICIOREAL'],'HH:mm')
+    HORA FIN           -> formatDateTime(item()?['FINREAL'],'HH:mm')
+    HORAS LABORALES    -> item()?['HORAS_TOTALES']
+    COMENTARIO         -> item()?['COMENTARIO']
+
+PASO 5 - SharePoint -> Copiar archivo
+  Origen:  /Documentos compartidos/EXPORT_MANT/PLANTILLA_MANT.xlsx
+  Destino: /Documentos compartidos/EXPORT_MANT/SALIDAS
+  Si existe: Reemplazar
+
+PASO 6 - Excel Online (Business) -> Ejecutar script
+  Archivo:   Id del archivo copiado
+  Script:    LlenarHojaMant
+  hoja:      CORRECTIVOS
+  datosJson: string(body('Sel_Correctivos'))
+
+PASO 7 - Excel Online (Business) -> Ejecutar script
+  Archivo:   Id del archivo copiado  (EL MISMO)
+  Script:    LlenarHojaMant
+  hoja:      REVISION
+  datosJson: string(body('Sel_Revision'))
+
+PASO 8 - SharePoint -> Crear vinculo para compartir
+PASO 9 - Responder a Power Apps o flujo
+  Salida de texto: urlArchivo = webUrl del paso 8
+
+IMPORTANTE: los pasos 6 y 7 deben ejecutarse EN SERIE (uno tras otro, no en
+paralelo). Si Power Automate los pone en paralelo, Excel bloquea el archivo
+y el segundo falla.
+
+===============================================================================
+11.5  BOTONES EN POWER APPS
+===============================================================================
+Primero: Power Apps -> Datos -> Agregar datos -> Power Automate ->
+seleccionar los dos flujos.
+
+-------------------------------------------------------------------------------
+CONTROL: btnExpPrev   (NUEVO - Boton Classic)
+UBICACION: Container73 > vKpiMant > conKpiTool_1
+-------------------------------------------------------------------------------
+Text:
+="Exportar PREVENTIVOS"
+
+Width:
+=190
+
+Height:
+=35
+
+Fill:
+=RGBA(21; 128; 61; 1)
+
+Color:
+=RGBA(255; 255; 255; 1)
+
+DisplayMode:
+=If(varEsEncargado && !varExportando; DisplayMode.Edit; DisplayMode.Disabled)
+
+OnSelect:
+=Set(varExportando; true);;
+Notify("Generando el Excel de PREVENTIVOS. Espera unos segundos..."; NotificationType.Information);;
+Set(varUrlExport; MANT_Exportar_Preventivos.Run().urlArchivo);;
+Set(varExportando; false);;
+If(
+    IsBlank(varUrlExport);
+    Notify("No se pudo generar el archivo. Revisa el flujo en Power Automate."; NotificationType.Error);
+    Launch(varUrlExport);;
+    Notify("Archivo generado correctamente."; NotificationType.Success)
+)
+
+-------------------------------------------------------------------------------
+CONTROL: btnExpCorr   (NUEVO - Boton Classic)
+UBICACION: Container73 > vKpiMant > conKpiTool_1
+-------------------------------------------------------------------------------
+Text:
+="Exportar CORRECTIVOS + REVISION"
+
+Width:
+=240
+
+Height:
+=35
+
+Fill:
+=RGBA(9; 33; 98; 1)
+
+Color:
+=RGBA(255; 255; 255; 1)
+
+DisplayMode:
+=If(varEsEncargado && !varExportando; DisplayMode.Edit; DisplayMode.Disabled)
+
+OnSelect:
+=Set(varExportando; true);;
+Notify("Generando el Excel de CORRECTIVOS y REVISION. Espera unos segundos..."; NotificationType.Information);;
+Set(varUrlExport; MANT_Exportar_Correctivos_Revision.Run().urlArchivo);;
+Set(varExportando; false);;
+If(
+    IsBlank(varUrlExport);
+    Notify("No se pudo generar el archivo. Revisa el flujo en Power Automate."; NotificationType.Error);
+    Launch(varUrlExport);;
+    Notify("Archivo generado correctamente."; NotificationType.Success)
+)
+
+-------------------------------------------------------------------------------
+AGREGAR AL App -> OnStart (2 lineas mas)
+-------------------------------------------------------------------------------
+Set(varExportando; false);;
+Set(varUrlExport; "");;
+
+
+###############################################################################
+# PARTE 12 - ORDEN DE APLICACION
+###############################################################################
+
+ 1. SharePoint: cambiar tipos de columna (PARTE 0) y quitar EN PROCESO /
+    PARCIAL de las elecciones ESTADO.
+ 2. Power Apps: Origenes de datos -> quitar y volver a agregar DBASIG y
+    REVISIONMANT. Guardar, cerrar el editor y volver a abrirlo.
+ 3. Pegar PARTE 1 (App -> Formulas) y PARTE 2 (App -> OnStart). Guardar.
+ 4. Crear los controles de la PARTE 3 dentro de cntSec3 y mover dpRealMant
+    a cntHoraFin.
+ 5. Aplicar PARTE 4, 5, 6, 7.
+ 6. Aplicar PARTE 8, 9, 10.
+ 7. Crear los flujos y el Office Script (PARTE 11) y luego los dos botones.
+ 8. Menu "..." sobre App -> Ejecutar OnStart.
+ 9. Comprobador de aplicaciones en cero -> Publicar.
+
+-------------------------------------------------------------------------------
+PRUEBA RAPIDA DEL CALCULO DE HORAS
+-------------------------------------------------------------------------------
+Caso A: inicio Lunes 14:00, fin Lunes 16:30        -> 2,50 h
+Caso B: inicio Lunes 14:00, fin Martes 10:00       -> 3,00 h  (3 + 0 + 0... ver)
+        Lunes 14:00 a 17:00 = 3 h ; Martes 07:00 a 10:00 = 3 h  -> 6,00 h
+Caso C: inicio Viernes 14:00, fin Lunes 10:00      -> 2 h (V) + 0 (S) + 0 (D)
+                                                      + 3 h (L) = 5,00 h
+Caso D: inicio Lunes 07:00, fin Jueves 17:00       -> 10 + 10 + 10 + 10 = 40,00 h
+Caso E: inicio Sabado 08:00, fin Sabado 12:00      -> 4,00 h  (si se trabaja
+                                                      ese sabado, cuenta)
+
+Si tu horario real cambia, los unicos numeros que hay que tocar son los del
+Switch de Weekday, y aparecen en DOS lugares: lblHorasLabMant.Text y
+btnGuardar.OnSelect (paso 5). Significado:
+   Switch(Weekday(d; StartOfWeek.Monday); 5; 16; 6; 16; 7; 16; 17)
+     -> hora de CIERRE: viernes 16, sabado 16, domingo 16, resto 17
+   Switch(Weekday(...); 5; 9; 6; 0; 7; 0; 10)
+     -> jornada COMPLETA de un dia intermedio: viernes 9 h, sabado 0,
+        domingo 0, resto 10 h
+La hora de APERTURA (07:00) esta escrita como el numero 7 en los Max(7; h1)
+y Min(c2; h2) - 7.
+
+===============================================================================
+FIN DEL DOCUMENTO
+===============================================================================
